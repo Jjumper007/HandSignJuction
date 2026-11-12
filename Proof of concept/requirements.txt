@@ -1,0 +1,5 @@
+# The receiver needs nothing beyond the standard library.
+# The analyzer and the simulator need these:
+numpy>=2.0
+scipy>=1.13
+matplotlib>=3.9
