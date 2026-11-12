@@ -5,7 +5,7 @@ import Foundation
 enum AppConfig {
     /// Where `receiver.py` can be reached: "host:port" for plain HTTP on the
     /// local network, or a full URL such as "https://name.trycloudflare.com".
-    static let defaultServerAddress = "192.168.1.10:8765"
+    static let defaultServerAddress = "10.133.1.70:8765"
 
     static let protocolVersion = 1
 
