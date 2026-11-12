@@ -1,0 +1,56 @@
+# XcodeGen spec for the watch-only app, for building from the terminal:
+#
+#   brew install xcodegen
+#   cd watch-app && xcodegen generate
+#
+# UNTESTED: written without access to a Mac. Two things may need adjusting:
+#   - If the app does not install as a lone watch target, add an iOS stub
+#     container target (type: application.watchapp2-container, platform: iOS)
+#     that depends on SonarProbe.
+#   - Override PRODUCT_BUNDLE_IDENTIFIER and DEVELOPMENT_TEAM on the xcodebuild
+#     command line; a free Apple Account needs a bundle ID nobody else uses.
+name: SonarProbe
+
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    watchOS: "10.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # The audio code must not inherit main-thread isolation.
+    SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
+targets:
+  SonarProbe:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Sources
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDisplayName: Sonar Probe
+        WKApplication: true
+        WKWatchOnly: true
+        UIBackgroundModes: [audio]
+        NSMicrophoneUsageDescription: Records the echo of the emitted chirp.
+        # Do not add NSAllowsLocalNetworking: it makes the system ignore this key.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_NAME: SonarProbe
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.sonarprobe.watchkitapp
+        CODE_SIGN_STYLE: Automatic
+        # There is no asset catalog, so there is no app icon set to compile.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+
+schemes:
+  SonarProbe:
+    build:
+      targets:
+        SonarProbe: all
+    run:
+      config: Debug
