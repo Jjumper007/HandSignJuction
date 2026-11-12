@@ -9,6 +9,8 @@ unprocessed, with its own microphone at the same time?**
 | `watch-app/Sources/` | watchOS app: plays the chirp, records the microphone, uploads the audio | Apple Watch (built on a Mac) |
 | `receiver.py` | HTTP server that stores each recording as a WAV file | Mac or PC |
 | `analyze.py` | Verdict and diagnostic figure for each recording | Mac or PC |
+| `live.py` | Receiver plus a live web page showing hand openness | Mac or PC |
+| `compare_poses.py` | Offline test: closed fist vs. open hand vs. a moving recording | Mac or PC |
 | `simulate.py` | Synthetic recordings, to test the tooling without hardware | Mac or PC |
 
 The Python side is tested (`python -m unittest discover -s tests`).
@@ -90,7 +92,42 @@ If the chirp is not detected, try in this order: check the volume, switch
 **Measurement mode** off in Settings, then try the **16-19 kHz** band (audible
 to some people).
 
-## 5. If the upload does not work
+## 5. Hand poses and the live view
+
+The label picker in the app also offers hand poses. A recording made with a
+pose label is stored with that label, so it doubles as training data.
+
+| Label | Hold the hand | Used for |
+|---|---|---|
+| Closed fist | fist, still | calibration (openness 0) and training |
+| Open hand | fully open, still | calibration (openness 1) and training |
+| Half open | half open, still | checking where the middle lands; training |
+| Live view | anything | continuous stream, up to 5 minutes |
+
+**Live view.** Run `python live.py` instead of `receiver.py`; it saves
+recordings the same way and opens `http://localhost:8765/live`.
+
+1. Record **Closed fist** for about 5 seconds, then **Open hand** for about 5 seconds.
+   Each one recalibrates the view as soon as it is saved.
+2. Start a **Live view** recording and move the hand. The page shows the
+   openness (0 = closed calibration, 1 = open calibration) and its last 20 seconds.
+3. Recalibrate whenever the watch is taken off or shifts on the wrist.
+
+Every other recording is traced live too, so the page is also a quick check
+while collecting data. To calibrate from sessions recorded with another label:
+`python live.py --closed recordings/<fist> --open recordings/<open hand>`.
+
+**Without the watch.** A saved session can be sent again as if it were live:
+`python simulate.py --replay recordings/<session> --send 127.0.0.1:8765 --realtime`
+
+**Offline comparison.** `python compare_poses.py --closed <fist> --open <open hand>
+--moving <opening and closing>` reports how well the two poses separate and
+draws the openness of the moving recording.
+
+The openness is an approximation: it follows opening and closing, drifts over
+time and is not linear in the finger angle.
+
+## 6. If the upload does not work
 
 Apple states that a watchOS app reaching a host on the local network may not
 work by default, so this is the most likely thing to fail. In order:

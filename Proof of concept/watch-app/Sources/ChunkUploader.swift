@@ -1,10 +1,13 @@
 import Foundation
 
-/// Sends one recording session to `receiver.py` over plain HTTP.
+/// Sends one recording session to the receiver over plain HTTP.
 ///
 /// Requests go out strictly one after another, in order: session start, the
-/// audio chunks, session end. A failed request is retried a few times; after
-/// that the queue pauses until `retry()` is called, and nothing is lost.
+/// audio, session end. Audio that piles up while a request is in flight is
+/// merged into the next request, so the delay adapts to the network: a fast
+/// link sends small pieces often, a slow one sends bigger pieces less often.
+/// A failed request is retried a few times; after that the queue pauses until
+/// `retry()` is called, and nothing is lost.
 ///
 /// Plain HTTP requests through `URLSession` are the only networking that
 /// watchOS allows every app to use, which is why this is not a socket stream.
@@ -12,21 +15,32 @@ import Foundation
 /// All mutable state is confined to `queue`, hence `@unchecked Sendable`.
 final class ChunkUploader: @unchecked Sendable {
     struct Progress {
-        var sentChunks = 0
-        var pendingRequests = 0
+        var sentSeconds = 0.0
+        var pendingSeconds = 0.0
         var hasFailed = false
         var isFinished = false
         var lastError: String?
     }
 
-    private struct Item {
+    /// Work that has not been turned into a request yet.
+    private enum Pending {
+        case metadata(Data)
+        case audio(Data)
+        case end(totalFrames: Int)
+    }
+
+    /// A request that has been built. It is resent unchanged on retry, so the
+    /// receiver can recognise a repeated chunk by its index.
+    private struct Outgoing {
         let request: URLRequest
         let body: Data
-        let isChunk: Bool
+        let audioBytes: Int
         let isLast: Bool
     }
 
     private static let maxAttempts = 5
+    /// Upper bound for one request: about ten seconds of audio.
+    private static let maxRequestBytes = 1_000_000
 
     private let baseURL: URL
     private let sessionID: String
@@ -35,11 +49,16 @@ final class ChunkUploader: @unchecked Sendable {
     private let urlSession: URLSession
 
     // Everything below is touched only on `queue`.
-    private var items: [Item] = []
+    private var pending: [Pending] = []
+    private var outgoing: Outgoing?
     private var isSending = false
     private var attempts = 0
     private var nextChunkIndex = 0
-    private var progress = Progress()
+    private var sampleRate = 48_000
+    private var sentAudioBytes = 0
+    private var hasFailed = false
+    private var isFinished = false
+    private var lastError: String?
 
     /// `onProgress` is called on the main thread.
     init(baseURL: URL, sessionID: String, onProgress: @escaping (Progress) -> Void) {
@@ -81,45 +100,28 @@ final class ChunkUploader: @unchecked Sendable {
         }.resume()
     }
 
-    /// Queues the session metadata. It is always sent before any chunk.
+    /// Queues the session metadata. It is always sent before any audio.
     func begin(metadata: [String: Any]) {
         guard let body = try? JSONSerialization.data(withJSONObject: metadata) else { return }
-        let request = jsonRequest(path: "session/start")
         queue.async {
-            // The request at the front may already be in flight; never displace it.
-            let position = self.isSending ? 1 : 0
-            self.items.insert(Item(request: request, body: body, isChunk: false, isLast: false),
-                              at: min(position, self.items.count))
+            self.pending.insert(.metadata(body), at: 0)
             self.publishAndSend()
         }
     }
 
-    /// Queues one chunk of mono 16-bit little-endian PCM.
+    /// Queues a piece of mono 16-bit little-endian PCM.
     func enqueueChunk(_ pcm: Data, sampleRate: Int) {
         queue.async {
-            var request = URLRequest(url: self.baseURL.appendingPathComponent("chunk"))
-            request.httpMethod = "POST"
-            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            request.setValue(self.sessionID, forHTTPHeaderField: "X-Session-Id")
-            request.setValue(String(self.nextChunkIndex), forHTTPHeaderField: "X-Chunk-Index")
-            request.setValue(String(sampleRate), forHTTPHeaderField: "X-Sample-Rate")
-            self.nextChunkIndex += 1
-            self.items.append(Item(request: request, body: pcm, isChunk: true, isLast: false))
+            self.sampleRate = max(1, sampleRate)
+            self.pending.append(.audio(pcm))
             self.publishAndSend()
         }
     }
 
     /// Queues the end-of-session marker; the receiver then writes the WAV file.
     func finish(totalFrames: Int) {
-        let request = jsonRequest(path: "session/end")
         queue.async {
-            let summary: [String: Any] = [
-                "session_id": self.sessionID,
-                "total_chunks": self.nextChunkIndex,
-                "total_frames": totalFrames,
-            ]
-            guard let body = try? JSONSerialization.data(withJSONObject: summary) else { return }
-            self.items.append(Item(request: request, body: body, isChunk: false, isLast: true))
+            self.pending.append(.end(totalFrames: totalFrames))
             self.publishAndSend()
         }
     }
@@ -127,9 +129,87 @@ final class ChunkUploader: @unchecked Sendable {
     /// Resumes a queue that paused after repeated failures.
     func retry() {
         queue.async {
-            self.progress.hasFailed = false
+            self.hasFailed = false
             self.attempts = 0
             self.publishAndSend()
+        }
+    }
+
+    private func publishAndSend() {
+        publish()
+        sendNext()
+    }
+
+    private func publish() {
+        var waitingBytes = outgoing?.audioBytes ?? 0
+        for item in pending {
+            if case .audio(let pcm) = item {
+                waitingBytes += pcm.count
+            }
+        }
+        let bytesPerSecond = Double(2 * sampleRate)
+        var snapshot = Progress()
+        snapshot.sentSeconds = Double(sentAudioBytes) / bytesPerSecond
+        snapshot.pendingSeconds = Double(waitingBytes) / bytesPerSecond
+        snapshot.hasFailed = hasFailed
+        snapshot.isFinished = isFinished
+        snapshot.lastError = lastError
+        let report = onProgress
+        DispatchQueue.main.async {
+            report(snapshot)
+        }
+    }
+
+    private func sendNext() {
+        guard !isSending, !hasFailed else { return }
+        if outgoing == nil {
+            outgoing = makeOutgoing()
+        }
+        guard let current = outgoing else { return }
+        isSending = true
+        let task = urlSession.uploadTask(with: current.request, from: current.body) { [weak self] _, response, error in
+            guard let self = self else { return }
+            self.queue.async {
+                self.handleResult(response: response, error: error)
+            }
+        }
+        task.resume()
+    }
+
+    /// Builds the next request from the head of the queue.
+    private func makeOutgoing() -> Outgoing? {
+        guard let first = pending.first else { return nil }
+        switch first {
+        case .metadata(let body):
+            pending.removeFirst()
+            return Outgoing(request: jsonRequest(path: "session/start"), body: body,
+                            audioBytes: 0, isLast: false)
+
+        case .audio:
+            // Take every piece of audio that is waiting, up to the size limit.
+            var body = Data()
+            while let next = pending.first {
+                guard case .audio(let pcm) = next else { break }
+                if !body.isEmpty && body.count + pcm.count > ChunkUploader.maxRequestBytes { break }
+                body.append(pcm)
+                pending.removeFirst()
+            }
+            var request = URLRequest(url: baseURL.appendingPathComponent("chunk"))
+            request.httpMethod = "POST"
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.setValue(sessionID, forHTTPHeaderField: "X-Session-Id")
+            request.setValue(String(nextChunkIndex), forHTTPHeaderField: "X-Chunk-Index")
+            request.setValue(String(sampleRate), forHTTPHeaderField: "X-Sample-Rate")
+            nextChunkIndex += 1
+            return Outgoing(request: request, body: body, audioBytes: body.count, isLast: false)
+
+        case .end(let totalFrames):
+            pending.removeFirst()
+            let summary: [String: Any] = ["session_id": sessionID, "total_frames": totalFrames]
+            let body = (try? JSONSerialization.data(withJSONObject: summary))
+                ?? Data("{\"session_id\":\"\(sessionID)\"}".utf8)
+            return Outgoing(request: jsonRequest(path: "session/end"), body: body,
+                            audioBytes: 0, isLast: true)
         }
     }
 
@@ -140,49 +220,25 @@ final class ChunkUploader: @unchecked Sendable {
         return request
     }
 
-    private func publishAndSend() {
-        publish()
-        sendNext()
-    }
-
-    private func publish() {
-        progress.pendingRequests = items.count
-        let snapshot = progress
-        let report = onProgress
-        DispatchQueue.main.async {
-            report(snapshot)
-        }
-    }
-
-    private func sendNext() {
-        guard !isSending, !progress.hasFailed, let item = items.first else { return }
-        isSending = true
-        let task = urlSession.uploadTask(with: item.request, from: item.body) { [weak self] _, response, error in
-            guard let self = self else { return }
-            self.queue.async {
-                self.handleResult(response: response, error: error)
-            }
-        }
-        task.resume()
-    }
-
     private func handleResult(response: URLResponse?, error: Error?) {
         isSending = false
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if error == nil, (200..<300).contains(status) {
-            let item = items.removeFirst()
+            if let sent = outgoing {
+                sentAudioBytes += sent.audioBytes
+                if sent.isLast { isFinished = true }
+            }
+            outgoing = nil
             attempts = 0
-            progress.lastError = nil
-            if item.isChunk { progress.sentChunks += 1 }
-            if item.isLast { progress.isFinished = true }
+            lastError = nil
             publishAndSend()
             return
         }
 
         attempts += 1
-        progress.lastError = error?.localizedDescription ?? "HTTP \(status)"
+        lastError = error?.localizedDescription ?? "HTTP \(status)"
         if attempts >= ChunkUploader.maxAttempts {
-            progress.hasFailed = true
+            hasFailed = true
             publish()
         } else {
             publish()

@@ -98,6 +98,15 @@ SCENARIOS: dict[str, Scenario] = {
     "dropouts": Scenario(name="dropouts", label="still", dropouts=[(3.0, 137), (5.5, 412)]),
     "silent-speaker": Scenario(name="silent-speaker", label="still", direct_amplitude=0.0,
                                static_echoes=[]),
+    # A stand-in for hand poses: one echo whose delay differs by less than half
+    # a wavelength between "closed" and "open", so the spectrum changes smoothly.
+    "pose-closed": Scenario(name="pose-closed", label="closed", moving=True, moving_amplitude=0.05,
+                            moving_delay_center=30.0, moving_delay_swing=0.0),
+    "pose-open": Scenario(name="pose-open", label="open", moving=True, moving_amplitude=0.05,
+                          moving_delay_center=30.8, moving_delay_swing=0.0),
+    "pose-live": Scenario(name="pose-live", label="live", moving=True, moving_amplitude=0.05,
+                          moving_delay_center=30.4, moving_delay_swing=0.4, moving_rate_hz=0.5,
+                          duration_s=20.0),
 }
 
 

@@ -100,8 +100,8 @@ struct ContentView: View {
 
     private var uploadSection: some View {
         Section("Upload") {
-            LabeledContent("Sent", value: "\(viewModel.upload.sentChunks) s")
-            LabeledContent("Waiting", value: "\(viewModel.upload.pendingRequests)")
+            LabeledContent("Sent", value: String(format: "%.1f s", viewModel.upload.sentSeconds))
+            LabeledContent("Waiting", value: String(format: "%.1f s", viewModel.upload.pendingSeconds))
             if let error = viewModel.upload.lastError {
                 Text(error)
                     .font(.footnote)

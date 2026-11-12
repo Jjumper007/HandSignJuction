@@ -23,6 +23,7 @@ final class SonarViewModel: ObservableObject {
     private let engine = SonarEngine()
     private var uploader: ChunkUploader?
     private var activeSessionID = ""
+    private var activeLabel = RecordingLabel.still
 
     func start(settings: RecordingSettings) {
         guard phase == .idle else { return }
@@ -93,6 +94,7 @@ final class SonarViewModel: ObservableObject {
             uploader.begin(metadata: info.metadata(sessionID: sessionID, label: settings.label))
             self.uploader = uploader
             activeSessionID = sessionID
+            activeLabel = settings.label
             sessionInfo = info
             status = nil
             upload = ChunkUploader.Progress()
@@ -108,7 +110,7 @@ final class SonarViewModel: ObservableObject {
     private func statusDidChange(_ newStatus: SonarEngine.Status) {
         guard phase == .recording else { return }
         status = newStatus
-        if newStatus.elapsedSeconds >= AppConfig.maxRecordingSeconds {
+        if newStatus.elapsedSeconds >= activeLabel.maxRecordingSeconds {
             stop()
         }
     }
@@ -116,7 +118,13 @@ final class SonarViewModel: ObservableObject {
     private func uploadDidProgress(_ progress: ChunkUploader.Progress, sessionID: String) {
         guard sessionID == activeSessionID else { return }
         upload = progress
-        guard phase != .recording else { return }
+        if phase == .recording {
+            // A live stream with nowhere to go would only pile up in memory.
+            if progress.hasFailed, activeLabel == .live {
+                stop()
+            }
+            return
+        }
         if progress.isFinished {
             finishSession(headline: "Saved on the laptop")
         } else if progress.hasFailed {

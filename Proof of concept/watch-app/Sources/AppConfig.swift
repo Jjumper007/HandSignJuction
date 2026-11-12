@@ -17,11 +17,14 @@ enum AppConfig {
 
     /// Silence recorded before the speaker starts; it is the noise reference.
     static let emissionDelaySeconds = 1.0
-    /// Audio is uploaded in chunks of this length.
-    static let chunkSeconds = 1.0
+    /// Audio is handed to the uploader in pieces of this length. The uploader
+    /// merges pieces when the network is slower than that.
+    static let chunkSeconds = 0.2
     /// Recording stops by itself after this long. Kept short on purpose: the
     /// watch may withdraw network access from a long-running audio session.
     static let maxRecordingSeconds = 30.0
+    /// The live view runs for longer; it still stops by itself to save battery.
+    static let maxLiveSeconds = 300.0
 }
 
 /// Frequency band swept by the chirp.
@@ -48,8 +51,16 @@ enum ChirpBand: String, CaseIterable, Identifiable {
     var endFrequency: Double { startFrequency + 3_000 }
 }
 
-/// What the hand is doing during the recording; used by the analyzer.
+/// What the hand is doing during the recording. The raw value is stored with
+/// the audio, so pose recordings double as labelled training data.
 enum RecordingLabel: String, CaseIterable, Identifiable {
+    // Hand poses, held still. "closed" and "open" calibrate the live view.
+    case closed
+    case open
+    case half
+    // Continuous stream for the live view on the computer.
+    case live
+    // Signal checks.
     case still
     case moving
     case offWrist = "off-wrist"
@@ -58,10 +69,18 @@ enum RecordingLabel: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .closed: return "Closed fist"
+        case .open: return "Open hand"
+        case .half: return "Half open"
+        case .live: return "Live view"
         case .still: return "Hand still"
         case .moving: return "Fingers moving"
         case .offWrist: return "Watch off wrist"
         }
+    }
+
+    var maxRecordingSeconds: Double {
+        self == .live ? AppConfig.maxLiveSeconds : AppConfig.maxRecordingSeconds
     }
 }
 

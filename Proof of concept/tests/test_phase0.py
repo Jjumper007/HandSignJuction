@@ -5,20 +5,25 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import threading
 import unittest
+import urllib.request
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from live import make_live_server  # noqa: E402
 from receiver import make_server  # noqa: E402
 from simulate import send_session  # noqa: E402
 from sonar.analysis import FAIL, MARGINAL, PASS, analyze, compare_motion  # noqa: E402
 from sonar.chirp import ChirpSpec, make_chirp  # noqa: E402
+from sonar.pose import chirp_spectra, evaluate  # noqa: E402
 from sonar.session import load_session  # noqa: E402
 from sonar.synth import SCENARIOS, synthesize  # noqa: E402
 
@@ -93,6 +98,67 @@ class AnalyzerTests(unittest.TestCase):
     def test_two_still_recordings_show_no_motion(self) -> None:
         check = compare_motion(run_scenario("good-still"), run_scenario("good-still"))
         self.assertEqual(check.status, FAIL)
+
+
+class PoseTests(unittest.TestCase):
+    """Two static echo configurations stand in for a closed and an open hand."""
+
+    @staticmethod
+    def spectra(delay_center: float, swing: float):
+        scenario = replace(SCENARIOS["good-moving"], moving_amplitude=0.05,
+                           moving_delay_center=delay_center, moving_delay_swing=swing)
+        audio = synthesize(scenario).astype(np.float64) / 32768.0
+        return chirp_spectra(audio, scenario.meta())
+
+    def test_openness_separates_poses_and_follows_movement(self) -> None:
+        # The echo moves by less than half a wavelength, so the spectrum changes
+        # smoothly from one pose to the other. A single echo moving further
+        # would wrap around and no straight line could describe it.
+        closed, frame_rate = self.spectra(30.0, 0.0)
+        opened, _ = self.spectra(30.8, 0.0)
+        moving, _ = self.spectra(30.4, 0.4)
+        metrics = evaluate(closed, opened, moving, frame_rate)["metrics"]
+        self.assertGreater(metrics["separation_d_prime"], 3.0)
+        self.assertGreater(metrics["moving_openness_p98"] - metrics["moving_openness_p02"], 0.5)
+        self.assertAlmostEqual(metrics["moving_rhythm_hz"], 1.5, delta=0.2)
+        self.assertGreater(metrics["movement_alignment_with_pose_axis"],
+                           2.0 * metrics["alignment_expected_by_chance"])
+
+    def test_still_recording_does_not_swing(self) -> None:
+        closed, frame_rate = self.spectra(24.0, 0.0)
+        opened, _ = self.spectra(36.0, 0.0)
+        metrics = evaluate(closed, opened, closed, frame_rate)["metrics"]
+        self.assertLess(metrics["moving_openness_p98"] - metrics["moving_openness_p02"], 0.2)
+
+
+class LiveViewTests(unittest.TestCase):
+    def test_calibrates_from_labelled_sessions_and_tracks_a_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            server, _ = make_live_server("127.0.0.1", 0, Path(temp))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            address = f"127.0.0.1:{server.server_address[1]}"
+            try:
+                before = self.state(address)
+                for name in ("pose-closed", "pose-open", "pose-live"):
+                    send_session(address, SCENARIOS[name], synthesize(SCENARIOS[name]))
+                after = self.state(address)
+            finally:
+                server.shutdown()
+                server.server_close()
+        self.assertFalse(before["calibrated"])
+        self.assertTrue(after["calibrated"])
+        self.assertEqual(after["session"]["label"], "live")
+        self.assertFalse(after["session"]["active"])
+        values = [value for _, value in after["points"]]
+        self.assertGreater(len(values), 100)
+        self.assertGreater(max(values) - min(values), 0.5)
+        self.assertGreater(min(values), -0.5)
+        self.assertLess(max(values), 1.5)
+
+    @staticmethod
+    def state(address: str) -> dict:
+        with urllib.request.urlopen(f"http://{address}/live/state", timeout=10) as response:
+            return json.loads(response.read())
 
 
 class ReceiverTests(unittest.TestCase):

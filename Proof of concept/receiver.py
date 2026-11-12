@@ -57,6 +57,8 @@ class SessionStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
+        # Optional hook, called with (directory, metadata) after a session is saved.
+        self.on_saved = None
 
     def start(self, meta: dict) -> Path:
         session_id = _valid_session_id(meta.get("session_id"))
@@ -95,14 +97,20 @@ class SessionStore:
         if session is None:
             return None
         session.meta["end"] = summary
-        return _finalize(session)
+        return self._save(session)
 
     def finalize_idle(self, timeout_s: float = IDLE_TIMEOUT_S) -> list[Path]:
         now = time.monotonic()
         with self._lock:
             idle = [sid for sid, s in self._sessions.items() if now - s.last_activity > timeout_s]
             sessions = [self._sessions.pop(sid) for sid in idle]
-        return [_finalize(session) for session in sessions]
+        return [self._save(session) for session in sessions]
+
+    def _save(self, session: Session) -> Path:
+        directory = _finalize(session)
+        if self.on_saved is not None:
+            self.on_saved(directory, session.meta)
+        return directory
 
     def finalize_all(self) -> list[Path]:
         return self.finalize_idle(timeout_s=-1.0)
@@ -233,8 +241,9 @@ def local_addresses() -> list[str]:
     return sorted(a for a in addresses if not a.startswith("127."))
 
 
-def make_server(host: str, port: int, out_dir: Path) -> ThreadingHTTPServer:
-    handler = type("BoundHandler", (Handler,), {"store": SessionStore(out_dir)})
+def make_server(host: str, port: int, out_dir: Path, handler_class: type = Handler,
+                store: SessionStore | None = None) -> ThreadingHTTPServer:
+    handler = type("BoundHandler", (handler_class,), {"store": store or SessionStore(out_dir)})
     return ThreadingHTTPServer((host, port), handler)
 
 

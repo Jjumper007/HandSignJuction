@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hand openness</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --panel: #f1f0ec; --text: #0b0b0b; --muted: #52514e; --grid: #dcdbd6;
+    --closed: #2a78d6; --open: #eb6834; --trace: #1baf7a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --panel: #262624; --text: #f0efec; --muted: #c3c2b7; --grid: #3d3d3a;
+      --closed: #3987e5; --open: #d95926; --trace: #199e70;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--text);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  #status { margin: 0 0 20px; color: var(--muted); }
+  .readout { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  #value { font-size: 4.5rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  #raw { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 28px; background: var(--panel); border-radius: 6px; overflow: hidden; }
+  #fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--trace); border-radius: 6px; }
+  .ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.875rem;
+          margin: 4px 0 24px; }
+  h2 { font-size: 0.95rem; margin: 0 0 6px; }
+  canvas { width: 100%; height: 300px; display: block; }
+  #note { margin: 16px 0 0; padding: 10px 12px; background: var(--panel); border-radius: 6px; }
+  #note:empty { display: none; }
+  #calibration { margin: 12px 0 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Hand openness</h1>
+  <p id="status">Connecting</p>
+
+  <div class="readout"><span id="value">--</span><span id="raw"></span></div>
+  <div class="track"><div id="fill"></div></div>
+  <div class="ends"><span>Closed fist</span><span>Open hand</span></div>
+
+  <h2>Last <span id="history">20</span> seconds</h2>
+  <canvas id="trace" aria-label="Hand openness over time"></canvas>
+
+  <p id="note"></p>
+  <p id="calibration"></p>
+</main>
+
+<script>
+const element = (id) => document.getElementById(id);
+const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const Y_MIN = -0.25, Y_MAX = 1.25;
+
+function render(state) {
+  const session = state.session;
+  let status = "Waiting for the watch. Start a recording in the app.";
+  if (session && session.active) {
+    status = `Receiving "${session.label}", ${session.seconds.toFixed(1)} s`;
+    if (session.delay_s !== null) status += `, about ${session.delay_s.toFixed(1)} s behind the hand`;
+  } else if (session) {
+    status = `Last session: "${session.label}" (${session.seconds.toFixed(1)} s). ` +
+             "Start a new recording to continue.";
+  }
+  element("status").textContent = status;
+
+  const value = state.openness;
+  if (value === null || value === undefined) {
+    element("value").textContent = "--";
+    element("raw").textContent = "";
+    element("fill").style.width = "0";
+  } else {
+    const clamped = Math.min(1, Math.max(0, value));
+    element("value").textContent = Math.round(clamped * 100) + "%";
+    element("raw").textContent = "raw " + value.toFixed(2);
+    element("fill").style.width = (clamped * 100) + "%";
+  }
+
+  element("note").textContent = state.note || "";
+  element("calibration").textContent = state.calibration
+    ? `Calibration: closed = ${state.calibration.closed}, open = ${state.calibration.open}`
+    : "";
+  element("history").textContent = Math.round(state.history_s);
+  draw(state.points || [], state.history_s || 20);
+}
+
+function draw(points, history) {
+  const canvas = element("trace");
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  if (canvas.width !== Math.round(width * ratio)) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+  }
+  const context = canvas.getContext("2d");
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  const left = 8, right = width - 8, top = 8, bottom = height - 8;
+  const end = points.length ? points[points.length - 1][0] : history;
+  const start = Math.max(end, history) - history;
+  const x = (t) => left + (t - start) / history * (right - left);
+  const y = (v) => bottom - (Math.min(Y_MAX, Math.max(Y_MIN, v)) - Y_MIN) / (Y_MAX - Y_MIN) * (bottom - top);
+
+  context.font = "12px system-ui, sans-serif";
+  context.textBaseline = "bottom";
+  for (const [level, color, label] of [[0, token("--closed"), "closed"], [1, token("--open"), "open"]]) {
+    context.strokeStyle = color;
+    context.lineWidth = 1.5;
+    context.setLineDash([6, 5]);
+    context.beginPath();
+    context.moveTo(left, y(level));
+    context.lineTo(right, y(level));
+    context.stroke();
+    context.fillStyle = token("--muted");
+    context.fillText(label, left + 2, y(level) - 4);
+  }
+  context.setLineDash([]);
+
+  context.strokeStyle = token("--grid");
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(left, y(0.5));
+  context.lineTo(right, y(0.5));
+  context.stroke();
+
+  if (points.length < 2) return;
+  context.strokeStyle = token("--trace");
+  context.lineWidth = 2;
+  context.lineJoin = "round";
+  context.beginPath();
+  points.forEach(([t, v], index) => {
+    if (index === 0) context.moveTo(x(t), y(v)); else context.lineTo(x(t), y(v));
+  });
+  context.stroke();
+}
+
+async function poll() {
+  try {
+    const response = await fetch("/live/state", { cache: "no-store" });
+    render(await response.json());
+  } catch (error) {
+    element("status").textContent = "The server is not reachable.";
+  } finally {
+    setTimeout(poll, 100);
+  }
+}
+poll();
+</script>
+</body>
+</html>
