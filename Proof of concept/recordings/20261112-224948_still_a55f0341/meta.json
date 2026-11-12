@@ -1,0 +1,36 @@
+{
+  "protocol": 1,
+  "sample_format": "int16le",
+  "input_sample_rate": 48000,
+  "output_sample_rate": 48000,
+  "input_channels": 3,
+  "label": "still",
+  "emission_delay_s": 1,
+  "chirp": {
+    "taper_samples": 30,
+    "f0_hz": 18000,
+    "samples": 600,
+    "f1_hz": 21000,
+    "amplitude": 0.800000011920929
+  },
+  "session_id": "a55f0341-7ef0-4dcd-8932-de1eccc0e6b3",
+  "output_volume": 1,
+  "device": {
+    "model": "Apple Watch",
+    "system": "watchOS 27.0.1"
+  },
+  "audio_session_mode": "measurement",
+  "started_at": "2026-11-12T20:49:47Z",
+  "end": {
+    "session_id": "a55f0341-7ef0-4dcd-8932-de1eccc0e6b3",
+    "total_chunks": 30,
+    "total_frames": 1440000
+  },
+  "received": {
+    "chunks": 30,
+    "missing_chunks": [],
+    "frames": 1440000,
+    "duration_s": 30.0
+  },
+  "hand_pose": "closed_fist"
+}
