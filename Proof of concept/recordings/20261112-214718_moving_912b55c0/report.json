@@ -1,0 +1,73 @@
+{
+  "label": "moving",
+  "verdict": "marginal",
+  "checks": [
+    {
+      "name": "levels",
+      "status": "pass",
+      "summary": "Peak -42.7 dBFS, RMS -64.0 dBFS, no clipping."
+    },
+    {
+      "name": "sample_rate",
+      "status": "pass",
+      "summary": "The microphone runs at 48000 Hz, enough for the 18000-21000 Hz chirp."
+    },
+    {
+      "name": "band_snr",
+      "status": "pass",
+      "summary": "Chirp band is 23.9 dB above the silent baseline."
+    },
+    {
+      "name": "band_coverage",
+      "status": "pass",
+      "summary": "96% of the band is usable (18000-20883 Hz)."
+    },
+    {
+      "name": "band_flatness",
+      "status": "pass",
+      "summary": "Effective bandwidth 1822 Hz of 3000 Hz (range resolution about 9.4 cm); top of the band is -11.9 dB relative to the bottom."
+    },
+    {
+      "name": "direct_path",
+      "status": "pass",
+      "summary": "Direct speaker-to-microphone peak is 29.7 dB above the profile floor."
+    },
+    {
+      "name": "timing",
+      "status": "marginal",
+      "summary": "38.9% of 2294 frames have a misplaced peak, with 94 timing jump(s). Samples are being dropped or the audio clocks drift; per-frame re-alignment will be needed."
+    },
+    {
+      "name": "echo_change",
+      "status": "info",
+      "summary": "Near-range echo changes by -29.9 dB relative to the direct path (far range -45.2 dB). Compare a 'still' and a 'moving' recording to judge finger sensitivity."
+    }
+  ],
+  "metrics": {
+    "duration_s": 30.0,
+    "input_sample_rate": 48000.0,
+    "peak_dbfs": -42.70477386496224,
+    "rms_dbfs": -63.978550460844794,
+    "clipped_fraction": 0.0,
+    "band_snr_db": 23.894776738817892,
+    "band_coverage": 0.9610894941634242,
+    "usable_band_hz": [
+      18000.0,
+      20882.8125
+    ],
+    "band_rolloff_db": -11.91759191826918,
+    "noise_reference": "silent baseline",
+    "effective_bandwidth_hz": 1822.1457578674008,
+    "range_resolution_cm": 9.411980312745113,
+    "frames": 2294,
+    "frame_rate_hz": 80.0,
+    "direct_peak_db": 29.682817048032625,
+    "direct_amplitude_dbfs": -64.68877210469735,
+    "glitch_fraction": 0.38927637314734087,
+    "timing_jumps": 94,
+    "direct_amplitude_cv": 0.3617610578923489,
+    "near_motion_db": -29.92308121994361,
+    "far_motion_db": -45.24468919072039,
+    "motion_dynamic_range_db": 270.9156338142092
+  }
+}

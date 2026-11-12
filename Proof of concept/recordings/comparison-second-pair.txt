@@ -1,0 +1,27 @@
+
+recordings/20261112-214933_still_4f794bdd  [label: still]
+  [PASS] levels: Peak -53.9 dBFS, RMS -65.4 dBFS, no clipping.
+  [PASS] sample_rate: The microphone runs at 48000 Hz, enough for the 18000-21000 Hz chirp.
+  [PASS] band_snr: Chirp band is 29.9 dB above the silent baseline.
+  [PASS] band_coverage: 96% of the band is usable (18000-20895 Hz).
+  [WARN] band_flatness: Effective bandwidth 1440 Hz of 3000 Hz (range resolution about 11.9 cm); top of the band is -9.3 dB relative to the bottom. The response is strongly tilted; the chirp will need equalisation or a different band.
+  [PASS] direct_path: Direct speaker-to-microphone peak is 29.9 dB above the profile floor.
+  [PASS] timing: 0.0% of 2294 frames have a misplaced peak, with 0 timing jump(s).
+  [INFO] echo_change: Near-range echo changes by -49.3 dB relative to the direct path (far range -52.7 dB). Compare a 'still' and a 'moving' recording to judge finger sensitivity.
+  => signal chain verdict: MARGINAL
+  figure: recordings/20261112-214933_still_4f794bdd/analysis.png
+
+recordings/20261112-215024_moving_9f7b5638  [label: moving]
+  [PASS] levels: Peak -36.5 dBFS, RMS -66.6 dBFS, no clipping.
+  [PASS] sample_rate: The microphone runs at 48000 Hz, enough for the 18000-21000 Hz chirp.
+  [WARN] band_snr: Chirp band is 19.1 dB above the silent baseline. Weak: raise the volume or try a lower band.
+  [PASS] band_coverage: 96% of the band is usable (18000-20883 Hz).
+  [WARN] band_flatness: Effective bandwidth 1656 Hz of 3000 Hz (range resolution about 10.4 cm); top of the band is -11.2 dB relative to the bottom. The response is strongly tilted; the chirp will need equalisation or a different band.
+  [PASS] direct_path: Direct speaker-to-microphone peak is 29.2 dB above the profile floor.
+  [WARN] timing: 48.5% of 2294 frames have a misplaced peak, with 207 timing jump(s). Samples are being dropped or the audio clocks drift; per-frame re-alignment will be needed.
+  [INFO] echo_change: Near-range echo changes by -30.1 dB relative to the direct path (far range -43.4 dB). Compare a 'still' and a 'moving' recording to judge finger sensitivity.
+  => signal chain verdict: MARGINAL
+  figure: recordings/20261112-215024_moving_9f7b5638/analysis.png
+
+Finger motion (moving vs. still)
+  [PASS] finger_motion: Near-range echo change is +19.2 dB stronger with moving fingers (moving -30.1 dB, still -49.3 dB relative to the direct path).
